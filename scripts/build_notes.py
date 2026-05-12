@@ -1,25 +1,25 @@
 #!/usr/bin/env python3
 """
-build_notes.py — 从 PPT/PDF 提取文本生成结构化中文学习笔记。
+build_notes.py — 从提取后的 Markdown 生成结构化中文学习笔记。
 
 用法:
-    # 默认读取 input/chapter4.md
+    # 默认读取 extracted/ 下第一个 .md 文件
     python scripts/build_notes.py
 
-    # 指定输入文件
-    python scripts/build_notes.py input/other_chapter.md
+    # 指定提取后的 Markdown 文件
+    python scripts/build_notes.py --input extracted/chapter4.md
+
+    # 自定义输出路径
+    python scripts/build_notes.py --input extracted/chapter4.md -o output/my_notes.md
 
     # 仅切分 + 保存 prompt（不调 LLM，方便手动处理）
-    python scripts/build_notes.py --save-prompts
+    python scripts/build_notes.py --input extracted/chapter4.md --save-prompts
 
     # 试运行（仅预览切块）
-    python scripts/build_notes.py --dry-run
+    python scripts/build_notes.py --input extracted/chapter4.md --dry-run
 
     # 指定模型
     python scripts/build_notes.py --model claude-opus-4-7
-
-    # 自定义输出路径
-    python scripts/build_notes.py -o output/my_notes.md
 
 环境变量:
     ANTHROPIC_API_KEY   — LLM 调用必需
@@ -43,11 +43,10 @@ from llm_client import AnthropicClient
 
 # ---- 路径配置 ----
 PROJECT_ROOT = _scripts_dir.parent
-INPUT_DIR = PROJECT_ROOT / "input"
+EXTRACTED_DIR = PROJECT_ROOT / "extracted"
 OUTPUT_DIR = PROJECT_ROOT / "output"
 PROMPTS_DIR = PROJECT_ROOT / "prompts"
 CACHE_DIR = OUTPUT_DIR / ".cache"
-DEFAULT_INPUT = "chapter4.md"
 
 
 # ============================================================
@@ -57,7 +56,7 @@ DEFAULT_INPUT = "chapter4.md"
 def resolve_input_path(explicit_path: str | None) -> Path:
     """
     解析输入文件路径。
-    优先级：命令行参数 > input/chapter4.md > input/ 下第一个 .md/.txt
+    优先级：--input 参数 > extracted/ 下第一个 .md
     """
     if explicit_path:
         p = Path(explicit_path)
@@ -65,20 +64,15 @@ def resolve_input_path(explicit_path: str | None) -> Path:
             raise FileNotFoundError(f"输入文件不存在: {p}")
         return p
 
-    # 默认优先找 input/chapter4.md
-    default = INPUT_DIR / DEFAULT_INPUT
-    if default.exists():
-        return default
-
-    # 回退：扫描 input/ 目录
+    # 扫描 extracted/ 目录
     candidates = sorted(
-        f for f in INPUT_DIR.iterdir()
+        f for f in EXTRACTED_DIR.iterdir()
         if f.suffix.lower() in (".txt", ".md") and f.name != ".gitkeep"
     )
     if not candidates:
         raise FileNotFoundError(
-            f"未找到输入文件。请将 PPT/PDF 提取文本放入 {INPUT_DIR}/\n"
-            f"  默认期望文件: {default}"
+            f"未找到输入文件。请先运行 extract_content.py 提取内容到 {EXTRACTED_DIR}/\n"
+            f"  或通过 --input 指定文件路径。"
         )
     return candidates[0]
 
@@ -252,11 +246,15 @@ def write_output(content: str, output_path: Path):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="从 PPT/PDF 提取文本生成结构化中文学习笔记。"
+        description="从提取后的 Markdown 生成结构化中文学习笔记。"
     )
     parser.add_argument(
-        "input", nargs="?", default=None,
-        help=f"输入 .md/.txt 文件路径（默认: input/{DEFAULT_INPUT}）",
+        "--input", "-i", default=None,
+        help="提取后的 .md 文件路径（默认: extracted/ 下第一个 .md）",
+    )
+    parser.add_argument(
+        "positional_input", nargs="?", default=None,
+        help=argparse.SUPPRESS,  # 兼容旧用法（无 --input 前缀）
     )
     parser.add_argument(
         "-o", "--output", default=None,
@@ -284,8 +282,10 @@ def main():
     )
     args = parser.parse_args()
 
-    # ---- 第 1 步：加载源文件 ----
-    input_path = resolve_input_path(args.input)
+    # ---- 第 1 步：解析输入文件 ----
+    # 优先 --input，其次位置参数（兼容旧用法）
+    input_arg = args.input or args.positional_input
+    input_path = resolve_input_path(input_arg)
     print(f"[build_notes] 输入: {input_path}")
     raw_text = load_source(input_path)
 
