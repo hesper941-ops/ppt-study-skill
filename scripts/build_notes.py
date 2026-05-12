@@ -56,13 +56,21 @@ CACHE_DIR = OUTPUT_DIR / ".cache"
 def resolve_input_path(explicit_path: str | None) -> Path:
     """
     解析输入文件路径。
-    优先级：--input 参数 > extracted/ 下第一个 .md
+    优先级：--input 参数 > extracted/ 下第一个 .md/.txt
     """
     if explicit_path:
         p = Path(explicit_path)
         if not p.exists():
             raise FileNotFoundError(f"输入文件不存在: {p}")
         return p
+
+    # 确保 extracted/ 目录存在
+    if not EXTRACTED_DIR.exists():
+        raise FileNotFoundError(
+            f"目录不存在: {EXTRACTED_DIR}\n"
+            f"  请先运行提取脚本，例如:\n"
+            f"  python scripts/extract_content.py --input input/你的文件.pptx"
+        )
 
     # 扫描 extracted/ 目录
     candidates = sorted(
@@ -71,8 +79,10 @@ def resolve_input_path(explicit_path: str | None) -> Path:
     )
     if not candidates:
         raise FileNotFoundError(
-            f"未找到输入文件。请先运行 extract_content.py 提取内容到 {EXTRACTED_DIR}/\n"
-            f"  或通过 --input 指定文件路径。"
+            f"{EXTRACTED_DIR}/ 中没有 .md 或 .txt 文件。\n"
+            f"  请先运行提取脚本，例如:\n"
+            f"  python scripts/extract_content.py --input input/你的文件.pptx\n"
+            f"  或通过 --input 直接指定文件路径。"
         )
     return candidates[0]
 

@@ -1,6 +1,10 @@
-﻿__pycache__/
+__pycache__/
 *.pyc
 .venv/
-output/
-extracted/
 .claude/
+
+output/*
+!output/.gitkeep
+
+extracted/*
+!extracted/.gitkeep

@@ -1,6 +1,6 @@
 # PPT 学习笔记生成器
 
-将 PPT/PDF/文本按**知识块**生成结构化中文学习笔记。
+将 PPT / PDF / Markdown / TXT 学习资料按**知识块**生成结构化中文学习笔记。
 
 ## 目录结构
 
@@ -18,7 +18,8 @@
 │   ├── extract_content.py    ← 内容提取（PDF/PPTX/MD/TXT → Markdown）
 │   ├── build_notes.py        ← 笔记生成（Markdown → 结构化学习笔记）
 │   ├── llm_client.py         ← LLM 客户端（Anthropic / 可替换）
-│   └── text_splitter.py      ← 知识块切分器
+│   └── text_splitter.py      ← 知识块切分器（三层策略）
+├── requirements.txt          ← Python 依赖
 └── .codex/
     └── ppt_skill.txt         ← 交互式系统 prompt
 ```
@@ -26,15 +27,18 @@
 ## 工作流
 
 ```
-原始素材                    提取后的 Markdown            结构化笔记
-──────────────────────────────────────────────────────────────────
+原始素材                      提取后的 Markdown              结构化笔记
+────────────────────────────────────────────────────────────────────
 input/chapter4.pdf    ──┐
 input/chapter4.pptx   ──┤
-input/chapter4.md     ──┤    extracted/chapter4.md
+input/chapter4.md     ──┤   extracted/chapter4.md
 input/chapter4.txt    ──┘         │
                                   ▼
-                         build_notes.py ──────► output/final_notes.md
-                             （知识块总结）
+                          text_splitter.py  ──► 按知识块智能切分
+                                  │
+                                  ▼
+                          build_notes.py    ──► output/final_notes.md
+                              （调用 LLM 逐块总结 + 整章总结）
 ```
 
 未来扩展：`final_notes.md` → docx / pdf 导出。
@@ -44,12 +48,13 @@ input/chapter4.txt    ──┘         │
 ### 1. 安装依赖
 
 ```bash
-pip install anthropic python-pptx pypdf
+pip install -r requirements.txt
 ```
 
+依赖：
 - `anthropic` — LLM 笔记生成
-- `python-pptx` — PPTX 提取
-- `pypdf` — PDF 提取
+- `python-pptx` — PPTX 文本提取
+- `pypdf` — PDF 文本提取
 
 ### 2. 设置 API Key（仅在运行笔记生成时需要）
 
@@ -61,6 +66,12 @@ export ANTHROPIC_API_KEY="sk-ant-..."
 $env:ANTHROPIC_API_KEY = "sk-ant-..."
 ```
 
+可选：指定模型（默认 `claude-sonnet-4-6`）：
+
+```bash
+export ANTHROPIC_MODEL="claude-opus-4-7"
+```
+
 ## 使用说明
 
 ### 第一步：提取内容
@@ -68,29 +79,32 @@ $env:ANTHROPIC_API_KEY = "sk-ant-..."
 将原始文件（PDF / PPTX / MD / TXT）放入 `input/`，运行提取：
 
 ```bash
-# 从 PDF 提取
-python scripts/extract_content.py --input input/chapter4.pdf
-
-# 从 PPTX 提取
+# 从 PPTX 提取（逐幻灯片：标题 + 文本框 + 备注）
 python scripts/extract_content.py --input input/chapter4.pptx
+
+# 从 PDF 提取（逐页文本）
+python scripts/extract_content.py --input input/chapter4.pdf
 
 # 从 Markdown 提取（编码规范化）
 python scripts/extract_content.py --input input/chapter4.md
 
+# 从纯文本提取
+python scripts/extract_content.py --input input/chapter4.txt
+
 # 自定义输出路径
-python scripts/extract_content.py --input input/chapter4.pdf -o extracted/my_notes.md
+python scripts/extract_content.py --input input/chapter4.pptx -o extracted/my_notes.md
 ```
 
-**提取行为**：
+**支持格式**：
 
 | 格式 | 行为 |
 |------|------|
-| `.md` / `.txt` | 编码规范化（UTF-8），复制到 `extracted/` |
-| `.pdf` | 逐页提取文本，添加 `## Page N` 标记 |
-| `.pptx` | 逐幻灯片提取标题、文本框、备注，添加 `## Slide N` 标记 |
+| `.pptx` | 逐幻灯片提取标题、文本框、备注 → `## Slide N` |
+| `.pdf` | 逐页提取文本 → `## Page N` |
+| `.md` | 编码规范化（UTF-8），复制到 `extracted/` |
+| `.txt` | 编码规范化，自动补章节标题 |
 
-对于无法提取文本的页面/幻灯片，自动插入占位提示：
-> [This page may contain images, charts, or non-extractable content.]
+无法提取文本的页面/幻灯片自动插入占位提示。
 
 ### 第二步：生成笔记
 
@@ -102,28 +116,35 @@ python scripts/build_notes.py
 python scripts/build_notes.py --input extracted/chapter4.md
 
 # 自定义输出路径
-python scripts/build_notes.py --input extracted/chapter4.md -o output/chapter4_notes.md
+python scripts/build_notes.py --input extracted/chapter4.md -o output/my_notes.md
 
-# 仅预览切块结果（不调 LLM）
+# 仅预览切块结果（不调 LLM，验证切分质量）
 python scripts/build_notes.py --input extracted/chapter4.md --dry-run
 
-# 仅导出 prompt 文件（不需要 API Key）
+# 仅导出 prompt（不需要 API Key，手动处理）
 python scripts/build_notes.py --input extracted/chapter4.md --save-prompts
 
-# 忽略缓存，强制重新生成
+# 强制重新生成（忽略 LLM 缓存）
 python scripts/build_notes.py --input extracted/chapter4.md --no-cache
+
+# 指定模型
+python scripts/build_notes.py --input extracted/chapter4.md --model claude-opus-4-7
 ```
 
 ### 完整工作流示例
 
 ```bash
-# 1. 从 PPTX 课件提取文本
+# 1. 安装依赖
+pip install -r requirements.txt
+
+# 2. 从 PPTX 课件提取文本
 python scripts/extract_content.py --input input/chapter4.pptx
 
-# 2. 预览知识块切分
+# 3. 预览知识块切分效果
 python scripts/build_notes.py --input extracted/chapter4.md --dry-run
 
-# 3. 生成最终笔记
+# 4. 确认切分合理后，生成最终笔记
+export ANTHROPIC_API_KEY="sk-ant-..."
 python scripts/build_notes.py --input extracted/chapter4.md
 
 # 结果：output/final_notes.md
@@ -131,7 +152,7 @@ python scripts/build_notes.py --input extracted/chapter4.md
 
 ## 输出结构
 
-生成的 `output/final_notes.md` 包含：
+`output/final_notes.md` 包含：
 
 **每个知识块**（按主题归并，不逐页复述）：
 - 这一块讲什么
@@ -148,24 +169,28 @@ python scripts/build_notes.py --input extracted/chapter4.md
 - 易错点
 - 考前速记提纲
 
-## 技术说明
+## 知识块切分原理
 
-### 知识块切分
+`text_splitter.py` 采用三层策略：
 
-`text_splitter.py` 按以下优先级切分：
-1. 显式 `## Knowledge Block N` 标记（推荐在提取文本中手动标注）
-2. 幻灯片/页分隔符（`## Slide N` / `## Page N` / `第N页`）
-3. Markdown 标题（`##`）
+| 优先级 | 策略 | 触发条件 |
+|--------|------|---------|
+| 1 | 手工标记 | 文本包含 `## Knowledge Block N` / `## 知识块 N` / `## Block N` |
+| 2 | 智能合并 | 文本包含 `## Slide N` / `## Page N`（自动提取产物） |
+| 3 | 标题切分 | 回退到 `##` 标题 + 同标题合并 |
 
-同一标题的连续内容自动合并，短碎片智能归并。
+策略 2 的核心逻辑：
+- 解析所有 Slide/Page 为单元（提取标题、统计字数）
+- 按规则判断合并/拆分：短碎片合并、同标题合并、延续格式合并、新主题拆分
+- 目标输出 5-10 个知识块（二遍合并控制上限）
 
-### 缓存机制
+## 缓存机制
 
-LLM 结果缓存到 `output/.cache/`。再次运行自动跳过已处理的块。删除该目录或使用 `--no-cache` 可强制重新生成。
+LLM 结果缓存到 `output/.cache/`（每个知识块一个文件）。再次运行自动跳过已处理块。删除该目录或使用 `--no-cache` 强制重新生成。
 
-### 扩展
+## 扩展
 
-- **换 LLM 提供方**：在 `scripts/llm_client.py` 中新增 `LLMClient` 子类
-- **新增提取格式**：在 `scripts/extract_content.py` 中新增 `BaseExtractor` 子类
-- **自定义切块逻辑**：修改 `scripts/text_splitter.py`
-- **导出 docx/pdf**：在 `scripts/` 下新增导出模块，接入 `assemble_output()` 的输出
+- **新增提取格式**：在 `scripts/extract_content.py` 中实现 `BaseExtractor` 子类
+- **换 LLM 提供方**：在 `scripts/llm_client.py` 中实现 `LLMClient` 子类
+- **自定义切块逻辑**：修改 `scripts/text_splitter.py` 中的合并规则
+- **导出 docx / pdf**：在 `scripts/` 下新增导出模块，接入 `assemble_output()` 输出
