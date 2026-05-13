@@ -45,6 +45,13 @@ class LLMClient(ABC):
         """根据所有知识块总结，生成整章总结。"""
         ...
 
+    @abstractmethod
+    def generate_final_notes(
+        self, system_prompt: str, drafts_text: str
+    ) -> BlockResult:
+        """根据块级草稿与总结参考材料，生成最终学习笔记。"""
+        ...
+
 
 # ============================================================
 # Anthropic Claude
@@ -118,10 +125,11 @@ class AnthropicClient(LLMClient):
         """生成整章总结。"""
         return self._call(system_prompt, blocks_summary)
 
-
-# ============================================================
-# DeepSeek（OpenAI-compatible API）
-# ============================================================
+    def generate_final_notes(
+        self, system_prompt: str, drafts_text: str
+    ) -> BlockResult:
+        """根据块级草稿生成最终学习笔记。"""
+        return self._call(system_prompt, drafts_text)
 
 class DeepSeekClient(LLMClient):
     """
@@ -203,6 +211,12 @@ class DeepSeekClient(LLMClient):
     ) -> BlockResult:
         """生成整章总结。"""
         return self._call(system_prompt, blocks_summary)
+
+    def generate_final_notes(
+        self, system_prompt: str, drafts_text: str
+    ) -> BlockResult:
+        """根据块级草稿生成最终学习笔记。"""
+        return self._call(system_prompt, drafts_text)
 
 
 # ============================================================

@@ -9,15 +9,16 @@
 ├── extracted/                ← 提取后的统一 Markdown（中间产物）
 ├── output/                   ← 最终学习笔记 + 缓存
 │   ├── final_notes.md        ← 最终输出
-│   ├── .cache/               ← LLM 块级缓存（可安全删除）
+│   ├── .cache/               ← LLM 缓存（按输入文件分目录）
 │   └── prompts/              ← --save-prompts 导出的 prompt 文件
 ├── prompts/
-│   ├── block_summarize.md    ← 知识块总结 prompt
-│   └── chapter_summary.md    ← 整章总结 prompt
+│   ├── block_summarize.md    ← 块级草稿生成 prompt
+│   ├── chapter_summary.md    ← 旧流程调试用整章总结 prompt
+│   └── final_editor.md       ← 最终统稿 prompt
 ├── scripts/
 │   ├── extract_content.py    ← 内容提取（PDF/PPTX/MD/TXT → Markdown）
 │   ├── build_notes.py        ← 笔记生成（Markdown → 结构化学习笔记）
-│   ├── llm_client.py         ← LLM 客户端（Anthropic / 可替换）
+│   ├── llm_client.py         ← LLM 客户端（Anthropic / DeepSeek）
 │   └── text_splitter.py      ← 知识块切分器（三层策略）
 ├── requirements.txt          ← Python 依赖
 └── .codex/
@@ -27,8 +28,8 @@
 ## 工作流
 
 ```
-原始素材                      提取后的 Markdown              结构化笔记
-────────────────────────────────────────────────────────────────────
+原始素材                      提取后的 Markdown                  两阶段学习笔记
+─────────────────────────────────────────────────────────────────────────────
 input/chapter4.pdf    ──┐
 input/chapter4.pptx   ──┤
 input/chapter4.md     ──┤   extracted/chapter4.md
@@ -37,11 +38,23 @@ input/chapter4.txt    ──┘         │
                           text_splitter.py  ──► 按知识块智能切分
                                   │
                                   ▼
-                          build_notes.py    ──► output/final_notes.md
-                              （调用 LLM 逐块总结 + 整章总结）
+                          build_notes.py
+                                  │
+                                  ├── 第 1 阶段：block drafts
+                                  │       对每个知识块生成块级草稿
+                                  │
+                                  └── 第 2 阶段：final editor pass
+                                          统一清洗、去重、润色、统稿
+                                                  │
+                                                  ▼
+                                          output/final_notes.md
 ```
 
-未来扩展：`final_notes.md` → docx / pdf 导出。
+当前默认流程是“两阶段生成”：
+1. block drafts
+2. final editor pass
+
+`chapter_summary.md` 仍保留，用于 `--skip-final-editor` 调试旧流程。
 
 ## 环境准备
 
@@ -158,15 +171,40 @@ python scripts/build_notes.py --input extracted/chapter4.md -o output/my_notes.m
 # 仅预览切块结果（不调 LLM，验证切分质量）
 python scripts/build_notes.py --input extracted/chapter4.md --dry-run
 
-# 仅导出 prompt（不需要 API Key，手动处理）
+# 仅导出各阶段 prompt（不需要 API Key，手动处理）
 python scripts/build_notes.py --input extracted/chapter4.md --save-prompts
 
-# 强制重新生成（忽略 LLM 缓存）
+# 强制重新生成（忽略当前输入文件缓存）
 python scripts/build_notes.py --input extracted/chapter4.md --no-cache
 
 # 指定模型
 python scripts/build_notes.py --input extracted/chapter4.md --model claude-opus-4-7
 ```
+
+### 两阶段生成说明
+
+默认会执行：
+1. **块级草稿生成**：先对每个知识块调用 `prompts/block_summarize.md`
+2. **最终统稿**：对所有块级草稿做本地清洗，再调用 `prompts/final_editor.md` 统一生成 `output/final_notes.md`
+
+其中：
+- `summary` / `本章总结` 类知识块不会作为正文知识块直接输出
+- 它们会作为“总结参考材料”提供给最终统稿阶段，用于生成最后的“整章总结”
+
+### 调试旧流程或块级输出
+
+如果只想调试块级输出，可以使用：
+
+```bash
+python scripts/build_notes.py --input extracted/chapter4.md --provider deepseek --skip-final-editor
+```
+
+这个模式下仍会：
+- 生成块级草稿
+- 生成整章总结
+- 直接拼接正文块 + 整章总结
+
+适合与新两阶段流程对比效果。
 
 ### 完整工作流示例
 
@@ -201,15 +239,15 @@ python scripts/build_notes.py --input extracted/chapter4.md --provider anthropic
 
 ## 输出结构
 
-`output/final_notes.md` 包含：
+`output/final_notes.md` 默认包含：
 
-**每个知识块**（按主题归并，不逐页复述）：
+**正文知识块**（按主题归并，不逐页复述）：
 - 这一块讲什么
 - 核心内容
 - 你要真正记住的点
 - 小结
 - 考试角度
-- 例题与解题步骤（如有）
+- 典型例题
 
 **整章总结**：
 - 整章主线
@@ -235,11 +273,16 @@ python scripts/build_notes.py --input extracted/chapter4.md --provider anthropic
 
 ## 缓存机制
 
-LLM 结果缓存到 `output/.cache/`（每个知识块一个文件）。再次运行自动跳过已处理块。删除该目录或使用 `--no-cache` 强制重新生成。
+LLM 结果缓存到 `output/.cache/`，并按输入文件分目录保存。再次运行会自动跳过已处理内容。删除对应目录或使用 `--no-cache` 可强制重新生成。
+
+当前缓存包括：
+- `block_drafts_v2/`：块级草稿缓存
+- `chapter_summary_v2.md`：旧流程整章总结缓存
+- `final_notes_v2.md`：最终统稿缓存
 
 ## 扩展
 
 - **新增提取格式**：在 `scripts/extract_content.py` 中实现 `BaseExtractor` 子类
 - **换 LLM 提供方**：在 `scripts/llm_client.py` 中实现 `LLMClient` 子类
 - **自定义切块逻辑**：修改 `scripts/text_splitter.py` 中的合并规则
-- **导出 docx / pdf**：在 `scripts/` 下新增导出模块，接入 `assemble_output()` 输出
+- **调整终稿风格**：修改 `prompts/block_summarize.md` 与 `prompts/final_editor.md`
