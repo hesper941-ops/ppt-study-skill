@@ -52,11 +52,16 @@ pip install -r requirements.txt
 ```
 
 依赖：
-- `anthropic` — LLM 笔记生成
+- `anthropic` — Anthropic Claude API
+- `openai` — DeepSeek（OpenAI-compatible API）
 - `python-pptx` — PPTX 文本提取
 - `pypdf` — PDF 文本提取
 
-### 2. 设置 API Key（仅在运行笔记生成时需要）
+### 2. 设置 LLM Provider
+
+支持两种 LLM 后端：**Anthropic Claude** 和 **DeepSeek**。
+
+#### 方式 A：Anthropic Claude
 
 ```bash
 # macOS / Linux
@@ -66,10 +71,42 @@ export ANTHROPIC_API_KEY="sk-ant-..."
 $env:ANTHROPIC_API_KEY = "sk-ant-..."
 ```
 
-可选：指定模型（默认 `claude-sonnet-4-6`）：
+可选指定模型（默认 `claude-sonnet-4-6`）：
 
 ```bash
 export ANTHROPIC_MODEL="claude-opus-4-7"
+```
+
+#### 方式 B：DeepSeek
+
+```bash
+# macOS / Linux
+export LLM_PROVIDER="deepseek"
+export DEEPSEEK_API_KEY="sk-..."
+
+# Windows PowerShell
+$env:LLM_PROVIDER = "deepseek"
+$env:DEEPSEEK_API_KEY = "sk-..."
+```
+
+可选指定模型（默认 `deepseek-v4-flash`）：
+
+```bash
+export DEEPSEEK_MODEL="deepseek-v4-pro"
+```
+
+DeepSeek 使用 OpenAI-compatible API，默认 base_url 为 `https://api.deepseek.com`，可通过 `DEEPSEEK_BASE_URL` 覆盖。
+
+#### 切换 Provider
+
+除了环境变量，也可通过 `--provider` 命令行参数切换：
+
+```bash
+# 用 DeepSeek 生成笔记
+python scripts/build_notes.py --input extracted/chapter4.md --provider deepseek
+
+# 用 Anthropic Claude 生成笔记
+python scripts/build_notes.py --input extracted/chapter4.md --provider anthropic
 ```
 
 ## 使用说明
@@ -144,8 +181,20 @@ python scripts/extract_content.py --input input/chapter4.pptx
 python scripts/build_notes.py --input extracted/chapter4.md --dry-run
 
 # 4. 确认切分合理后，生成最终笔记
-export ANTHROPIC_API_KEY="sk-ant-..."
+
+# 使用 DeepSeek（推荐国内用户）
+# PowerShell:
+$env:LLM_PROVIDER = "deepseek"
+$env:DEEPSEEK_API_KEY = "sk-..."
+# Bash:
+export LLM_PROVIDER="deepseek"
+export DEEPSEEK_API_KEY="sk-..."
+
 python scripts/build_notes.py --input extracted/chapter4.md
+
+# 或使用 Anthropic Claude
+export ANTHROPIC_API_KEY="sk-ant-..."
+python scripts/build_notes.py --input extracted/chapter4.md --provider anthropic
 
 # 结果：output/final_notes.md
 ```

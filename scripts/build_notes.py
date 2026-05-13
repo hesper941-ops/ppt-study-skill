@@ -12,21 +12,32 @@ build_notes.py — 从提取后的 Markdown 生成结构化中文学习笔记。
     # 自定义输出路径
     python scripts/build_notes.py --input extracted/chapter4.md -o output/my_notes.md
 
+    # 使用 DeepSeek
+    python scripts/build_notes.py --input extracted/chapter4.md --provider deepseek
+
+    # 使用 Anthropic Claude
+    python scripts/build_notes.py --input extracted/chapter4.md --provider anthropic
+
+    # 指定模型
+    python scripts/build_notes.py --model deepseek-v4-pro
+    python scripts/build_notes.py --model claude-opus-4-7
+
     # 仅切分 + 保存 prompt（不调 LLM，方便手动处理）
     python scripts/build_notes.py --input extracted/chapter4.md --save-prompts
 
-    # 试运行（仅预览切块）
+    # 试运行（仅预览切块，不调 LLM）
     python scripts/build_notes.py --input extracted/chapter4.md --dry-run
 
-    # 指定模型
-    python scripts/build_notes.py --model claude-opus-4-7
-
 环境变量:
-    ANTHROPIC_API_KEY   — LLM 调用必需
-    ANTHROPIC_MODEL     — 默认模型（未指定时: claude-sonnet-4-6）
+    LLM_PROVIDER        — "anthropic" 或 "deepseek"（默认: anthropic）
+    ANTHROPIC_API_KEY   — Anthropic 调用必需
+    DEEPSEEK_API_KEY    — DeepSeek 调用必需
+    DEEPSEEK_BASE_URL   — DeepSeek API 地址（默认: https://api.deepseek.com）
+    LLM_MAX_TOKENS      — max_tokens（Anthropic 默认 4096, DeepSeek 默认 8192）
 """
 
 import argparse
+import os
 import re
 import sys
 import time
@@ -39,7 +50,7 @@ if str(_scripts_dir) not in sys.path:
     sys.path.insert(0, str(_scripts_dir))
 
 from text_splitter import split_into_blocks
-from llm_client import AnthropicClient
+from llm_client import create_client
 
 # ---- 路径配置 ----
 PROJECT_ROOT = _scripts_dir.parent
@@ -279,8 +290,13 @@ def main():
         help="仅切分并保存各块的 prompt 到 output/prompts/，不调用 LLM",
     )
     parser.add_argument(
+        "--provider", default=None,
+        choices=["anthropic", "deepseek"],
+        help="LLM 提供方: anthropic / deepseek（默认: 环境变量 LLM_PROVIDER，最终回退 anthropic）",
+    )
+    parser.add_argument(
         "--model", default=None,
-        help="Anthropic 模型覆盖（环境变量: ANTHROPIC_MODEL）",
+        help="模型名（anthropic 默认 claude-sonnet-4-6, deepseek 默认 deepseek-v4-flash）",
     )
     parser.add_argument(
         "--retries", type=int, default=2,
@@ -329,7 +345,10 @@ def main():
         print("[build_notes] 已清除缓存")
 
     # ---- 第 5 步：初始化 LLM 客户端 ----
-    client = AnthropicClient(model=args.model)
+    client = create_client(provider=args.provider, model=args.model)
+    provider_name = args.provider or os.getenv("LLM_PROVIDER", "anthropic")
+    print(f"[build_notes] Provider: {provider_name}")
+    print(f"[build_notes] Model: {client.model}")
 
     # ---- 第 6 步：逐块总结 ----
     print(f"[build_notes] 开始逐块总结 ({len(blocks)} 块)...")
